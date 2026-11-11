@@ -1,0 +1,25 @@
+services:
+  lagcorl:
+    # Platform (i.e., architecture) should be automatically selected when you build
+    # the container. This setting can be overriden manually in case there are issues.
+    # Uncomment for PCs or older Macs with Intel chips
+    #   platform: linux/amd64
+    # Uncomment for Macs with ARM architecture
+    #   platform: linux/arm64
+    build: .
+    container_name: lagcorl-tutorial
+
+    ports:
+      - "127.0.0.1:8889:8889"
+
+    volumes:
+      - .:/workspace
+
+    command: >
+      jupyter lab
+      --ip=0.0.0.0
+      --port=8889
+      --no-browser
+      --allow-root
+      --ServerApp.root_dir=/workspace
+      --ServerApp.token=''

@@ -1,0 +1,7 @@
+.git
+.venv
+__pycache__
+.ipynb_checkpoints
+*.pyc
+logs/*
+tutorial-output/*
