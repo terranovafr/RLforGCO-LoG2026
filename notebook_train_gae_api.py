@@ -1,15 +1,6 @@
 """
 Notebook API for training a LaGCORL GAE/VGAE reference encoder and loading it
 for project AgentTrainingWrapper use.
-
-Important:
-- GAE training uses LaGCORL's configured graph-environment sample corpus
-  (data/env_samples/<load_envs>), not an arbitrary single Gymnasium instance.
-- The selected corpus/environment must match the graph/node/edge feature schema
-  of the RL environment that will later consume the embeddings.
-- This API calls the repository's train_gae.py entry point so that its normal
-  config, train/validation split, metadata, and checkpoint-writing behavior stay
-  intact. It disables the interactive "make this default" prompt.
 """
 from __future__ import annotations
 
@@ -68,14 +59,6 @@ def train_gae_for_embeddings(
 ) -> dict:
     """
     Train a GAE/VGAE using the repository's native training script.
-
-    `environment` must be a key in LaGCORL/config.yaml.
-    `load_envs` must be the name of a folder under LaGCORL/data/env_samples.
-    When omitted, the default sample corpus for `environment` is read from
-    config.yaml.
-
-    Returns a dictionary with `output_dir`, `encoder_dirs`, `environment`,
-    `load_envs`, `model_type`, `command`, and `stdout`.
     """
     if train_iterations < 0:
         raise ValueError("train_iterations must be >= 0")
@@ -309,16 +292,7 @@ def make_agent_training_wrapper_factory(
     config_overrides: Optional[dict] = None,
     prefer_best_validation: bool = True,
 ):
-    """
-    Create raw_env -> AgentTrainingWrapper using the supplied GAE run.
-
-    The project YAML files are merged in the same broad order as train_agent.py:
-    RL train config, algorithm config, environment config, general environment
-    defaults, then agent-type settings and explicit config_overrides.
-
-    The raw environment must implement the project methods/specification expected
-    by AgentTrainingWrapper (normally update_spec(), graph feature metadata, etc.).
-    """
+    """  Create raw_env -> AgentTrainingWrapper using the supplied GAE run.  """
     import copy
 
     root = _resolve_project_root(project_root)

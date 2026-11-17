@@ -1,18 +1,7 @@
 """
 Notebook-friendly training API for environments created in Python/Jupyter.
 
-This deliberately bypasses the CLI's environment-folder/split pipeline. It trains
-on a supplied Gymnasium environment instance, or loads one from the default corpus
-configured in config.yaml when env=None.
-
-Examples:
-    result = train_agent_on_env(env, algorithm="ppo", agent_type="discrete",
-                                total_timesteps=10_000)
-    model = result["model"]
-
-For project-specific projection training, pass a wrapper_factory that applies
-LaGCORL's AgentTrainingWrapper to the raw environment using the encoder/config
-used by your project.
+This deliberately bypasses the CLI's environment-folder/split pipeline.
 """
 from __future__ import annotations
 

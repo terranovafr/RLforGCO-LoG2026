@@ -1,8 +1,5 @@
-"""Small reusable helpers for the LaGCORL tutorial notebooks.
+"""Small reusable helpers for the LaGCORL tutorial notebooks."""
 
-Keep notebook cells focused on experiment choices and results; put reusable
-visualisation, artifact management, and sample-corpus plumbing here.
-"""
 from __future__ import annotations
 
 import json
@@ -27,39 +24,6 @@ def plot_tensorboard(
 ):
     """
     Plot a scalar metric from TensorBoard event files.
-
-    Parameters
-    ----------
-    log_root : str or Path
-        Root directory containing TensorBoard logs. Event files may be nested
-        inside algorithm-specific directories such as PPO_17, DQN_3, or A2C_2.
-
-    title : str, optional
-        Custom plot title.
-
-    metric : str
-        TensorBoard scalar tag to plot. Examples:
-        - rollout/ep_rew_mean
-        - train/value_loss
-        - train/policy_gradient_loss
-        - train/actor_loss
-        - train/critic_loss
-        - train/entropy_loss
-        - train/graph/total_loss
-
-    run_selector : str
-        "latest": select the newest detected run directory.
-        "all": combine event files from all detected runs.
-
-    show_all_runs : bool
-        If True, plot each detected run separately for comparison.
-        This overrides run_selector and plots all runs.
-
-    Returns
-    -------
-    pandas.DataFrame or dict
-        A DataFrame containing timestep and metric values, or a dictionary
-        mapping run names to DataFrames when show_all_runs=True.
     """
     log_root = Path(log_root).expanduser().resolve()
 
@@ -409,10 +373,6 @@ def benchmark_on_corpus(
     verbose=1,
 ):
     """Benchmark a model on each specified corpus environment and combine results.
-
-    Each environment is freshly unpickled, wrapped independently, and evaluated
-    separately. Per-environment files and a combined episode-metrics CSV are saved
-    under the run's test_metrics directory.
     """
     import pandas as pd
 
@@ -583,7 +543,6 @@ def save_metric_frame(frame, output_dir, filename="training_metrics.csv"):
         import pandas as pd
         frame = pd.concat(pieces, ignore_index=True)
     frame.to_csv(path, index=False)
-    print("Saved extracted training metrics:", path.resolve())
     return path
 
 
@@ -832,23 +791,7 @@ def evaluate_agents_on_random_maxcut_graphs(
     max_sweeps=None,
     verbose=0,
 ):
-    """Evaluate each agent on the same randomized graph suite and save graph-level results.
-
-    Parameters
-    ----------
-    agents : sequence of mappings
-        Each mapping contains ``model``, ``label``, and ``wrapper_factory``.
-    graph_records : sequence
-        Output from :func:`generate_random_maxcut_graphs`.
-    test_agent_on_env : callable
-        LaGCORL notebook evaluation API.
-    output_dir : str or Path
-        Directory for per-agent, per-graph, combined, and summary CSV files.
-
-    Returns
-    -------
-    dict with ``episodes``, ``per_graph``, ``summary``, and ``paired_differences``.
-    """
+    """Evaluate each agent on the same randomized graph suite and save graph-level results. """
     import numpy as np
     import pandas as pd
 
@@ -979,13 +922,7 @@ def evaluate_agents_on_random_maxcut_graphs(
 # Benchmark-generic VMP adapter/evaluation helpers
 # ---------------------------------------------------------------------------
 def make_vmp_gymnasium_env(*, config=None, seed=None, render_mode=None):
-    """Create a VMP environment with a Gymnasium-compatible single-integer action.
-
-    ExtendedVMPlacementEnv's native step API accepts ``step(vm_index, pm_index)``.
-    This adapter maps a Discrete(n_vms * n_pms) action to that pair and flattens
-    the native observation into a fixed-length Box vector. Use fixed VMP_SIZE
-    across training/evaluation so the observation and action spaces stay stable.
-    """
+    """Create a VMP environment with a Gymnasium-compatible single-integer action."""
     import numpy as np
     import gymnasium as gym
     from gymnasium import spaces
@@ -1114,11 +1051,7 @@ def evaluate_gymnasium_agent_on_envs(
     deterministic=True,
     output_dir=None,
 ):
-    """Evaluate an SB3-compatible model on fresh Gymnasium envs and save metrics.
-
-    ``env_factories`` is a sequence of zero-argument callables returning fresh
-    environments. Metrics from ``get_metrics()`` are included when available.
-    """
+    """Evaluate an SB3-compatible model on fresh Gymnasium envs and save metrics."""
     import json
     import numpy as np
     import pandas as pd
@@ -1680,3 +1613,611 @@ def newest_gae_bundle(log_root, benchmark):
             run_candidates.append((run_dir.stat().st_mtime, selected))
 
     return max(run_candidates, key=lambda item: item[0])[1] if run_candidates else None
+
+
+
+# ---------------------------------------------------------------------------
+# Tutorial workflow helpers: keep diagnostic and compatibility plumbing out
+# of the narrative notebook cells.
+# ---------------------------------------------------------------------------
+
+def diagnose_unpadded_transfer(
+    corpus,
+    corpus_dir,
+    train_env_id,
+    benchmark,
+    model,
+    *,
+    seed=7,
+):
+    """Compare a training/held-out environment and exercise an unpadded policy.
+
+    Selects the held-out scenario with the largest node-count difference,
+    reports observation/action-space compatibility, and attempts the two
+    standard SB3 transfer checks. Returns IDs, environments, and comparison
+    flags so the notebook can reuse them in later sections if needed.
+    """
+    import numpy as np
+    from stable_baselines3.common.vec_env import DummyVecEnv
+
+    graphs = corpus["graphs"]
+    train_row = graphs.loc[graphs["id"] == train_env_id].iloc[0]
+    candidates = graphs.loc[graphs["id"] != train_env_id].copy()
+    if candidates.empty:
+        raise ValueError("At least one held-out environment is required.")
+    candidates["distance_from_train_size"] = (
+        candidates["nodes"] - int(train_row["nodes"])
+    ).abs()
+    heldout_row = candidates.sort_values(
+        "distance_from_train_size", ascending=False
+    ).iloc[0]
+    mismatch_env_id = int(heldout_row["id"])
+
+    train_env = load_benchmark_env(
+        corpus_dir, train_env_id, benchmark, gymnasium_api=True
+    )
+    heldout_env = load_benchmark_env(
+        corpus_dir, mismatch_env_id, benchmark, gymnasium_api=True
+    )
+    print(f"Training env {train_env_id}: nodes={int(train_row['nodes'])}")
+    print(f"Held-out env {mismatch_env_id}: nodes={int(heldout_row['nodes'])}")
+    print("\nRaw observation space (train):", train_env.observation_space)
+    print("Raw observation space (held-out):", heldout_env.observation_space)
+    print("Raw action space (train):", train_env.action_space)
+    print("Raw action space (held-out):", heldout_env.action_space)
+
+    same_obs_space = train_env.observation_space == heldout_env.observation_space
+    same_action_space = train_env.action_space == heldout_env.action_space
+    print(f"\nObservation spaces equal: {same_obs_space}")
+    print(f"Action spaces equal: {same_action_space}")
+
+    try:
+        model.set_env(DummyVecEnv([
+            lambda: load_benchmark_env(
+                corpus_dir, mismatch_env_id, benchmark, gymnasium_api=True
+            )
+        ]))
+    except Exception as exc:
+        print("SB3 refuses to attach the differently-sized environment to the unpadded model:")
+        print(f"{type(exc).__name__}: {exc}")
+
+    heldout_obs, _ = heldout_env.reset(seed=seed + 1)
+    try:
+        predicted_action, _ = model.predict(heldout_obs, deterministic=True)
+        print("Unpadded model.predict() returned:", predicted_action)
+        if hasattr(heldout_env.action_space, "n"):
+            scalar_action = int(np.asarray(predicted_action).reshape(-1)[0])
+            if scalar_action >= heldout_env.action_space.n:
+                print(
+                    f"Expected transfer problem: action {scalar_action} is outside "
+                    f"the held-out Discrete({heldout_env.action_space.n}) space."
+                )
+            else:
+                print(
+                    "predict() did not raise for this observation, but that alone does not "
+                    "make the policy compatible: its input/action contracts were built for "
+                    "the training spaces. Compare the spaces above and try other graph sizes."
+                )
+    except Exception as exc:
+        print("As expected, the unpadded policy cannot consume this observation:")
+        print(f"{type(exc).__name__}: {exc}")
+
+    print(
+        "\nConclusion: standard SB3 policies require a stable observation/action-space "
+        "contract. Padding can make dimensions compatible; a graph encoder can additionally "
+        "turn variable-size graph structure into a fixed-size learned observation."
+    )
+    return {
+        "mismatch_env_id": mismatch_env_id,
+        "train_env": train_env,
+        "heldout_env": heldout_env,
+        "same_observation_space": same_obs_space,
+        "same_action_space": same_action_space,
+    }
+
+
+def make_wrapper_factories(
+    *,
+    environment,
+    gae_run_dir,
+    project_root,
+    log_root,
+):
+    """Create the iterative and projection wrapper factories used in the tutorial."""
+    try:
+        from LaGCORL.agents.notebook_train_gae_api import make_agent_training_wrapper_factory
+    except ImportError:
+        from agents.notebook_train_gae_api import make_agent_training_wrapper_factory
+
+    wrapper_log_root = Path(log_root) / "train_metrics" / "wrapper_logs"
+    iterative = make_agent_training_wrapper_factory(
+        environment=environment,
+        gae_run_dir=str(gae_run_dir),
+        agent_type="iterative",
+        project_root=str(project_root),
+        logs_dir=str(wrapper_log_root / "iterative_wrapper"),
+    )
+    projection = make_agent_training_wrapper_factory(
+        environment=environment,
+        gae_run_dir=str(gae_run_dir),
+        agent_type="projection",
+        algorithm="ppo",
+        project_root=str(project_root),
+        logs_dir=str(wrapper_log_root / "projection_wrapper"),
+    )
+    return {"iterative": iterative, "projection": projection}
+
+
+def patch_loaded_wrapper_encoder_references():
+    """Unify GAE/VGAE class references in already-imported wrapper modules.
+
+    This is a compatibility workaround for notebooks that may have imported
+    the same project module under more than one package name.
+    """
+    import importlib
+    import sys
+
+    canonical_model = importlib.import_module("LaGCORL.gae.model")
+    gae_class = canonical_model.GAEEncoder
+    vgae_class = canonical_model.VGAEEncoder
+    patched_modules = []
+
+    for module_name, module in list(sys.modules.items()):
+        if module is None or not module_name.endswith("agent_training_wrapper"):
+            continue
+        module.GAEEncoder = gae_class
+        module.VGAEEncoder = vgae_class
+        wrapper_class = getattr(module, "AgentTrainingWrapper", None)
+        if wrapper_class is None:
+            continue
+        encode_globals = wrapper_class.encode.__globals__
+        encode_globals["GAEEncoder"] = gae_class
+        encode_globals["VGAEEncoder"] = vgae_class
+        patched_modules.append(module_name)
+
+    sys.modules["gae.model"] = canonical_model
+    if "gae" in sys.modules:
+        sys.modules["gae"].model = canonical_model
+
+    if not patched_modules:
+        raise RuntimeError(
+            "No loaded agent_training_wrapper module was found to patch. "
+            "Import the wrapper factory/module before calling this helper."
+        )
+    return patched_modules
+
+
+def compare_agent_results(
+    benchmark_results,
+    benchmark,
+    log_root,
+    *,
+    timestamp=None,
+):
+    """Normalize benchmark metric aliases, compare agents, and save episode rows."""
+    benchmark = _normalize_benchmark(benchmark)
+    if benchmark == "maxcut":
+        expected_metrics = [
+            "agent_current_cut",
+            "agent_relative_performance",
+            "agent_partition0_size",
+            "agent_partition1_size",
+            "agent_num_steps",
+        ]
+        aliases = {
+            "current_cut": "agent_current_cut",
+            "relative_performance": "agent_relative_performance",
+            "partition0_size": "agent_partition0_size",
+            "partition1_size": "agent_partition1_size",
+            "num_steps": "agent_num_steps",
+        }
+    else:
+        expected_metrics = [
+            "agent_weighted_sum_difference",
+            "agent_norm_avg_util_difference",
+            "agent_norm_avg_power_difference",
+            "agent_norm_avg_security_risk_difference",
+            "agent_norm_avg_load_difference",
+            "agent_norm_packing_efficiency_difference",
+            "agent_vm_density_difference",
+            "agent_active_pms_difference",
+            "agent_actual_valid_movements",
+        ]
+        aliases = {
+            "weighted_sum_difference": "agent_weighted_sum_difference",
+            "norm_avg_util_difference": "agent_norm_avg_util_difference",
+            "norm_avg_power_difference": "agent_norm_avg_power_difference",
+            "norm_avg_security_risk_difference": "agent_norm_avg_security_risk_difference",
+            "norm_avg_load_difference": "agent_norm_avg_load_difference",
+            "norm_packing_efficiency_difference": "agent_norm_packing_efficiency_difference",
+            "vm_density_difference": "agent_vm_density_difference",
+            "active_pms_difference": "agent_active_pms_difference",
+            "actual_valid_movements": "agent_actual_valid_movements",
+        }
+
+    agent_frames = {
+        label: result["episodes"].copy()
+        for label, result in benchmark_results.items()
+    }
+    for label, frame in agent_frames.items():
+        rename_map = {
+            alias: canonical
+            for alias, canonical in aliases.items()
+            if alias in frame.columns and canonical not in frame.columns
+        }
+        agent_frames[label] = frame.rename(columns=rename_map)
+
+    missing = {
+        label: [metric for metric in expected_metrics if metric not in frame.columns]
+        for label, frame in agent_frames.items()
+    }
+    for label, absent in missing.items():
+        if absent:
+            print(f"WARNING — {label} is missing: {absent}")
+
+    common_metrics = [
+        metric for metric in expected_metrics
+        if all(metric in frame.columns for frame in agent_frames.values())
+    ]
+    if not common_metrics:
+        raise ValueError(
+            "No common evaluation metrics exist. Check the metric names "
+            "in each agent's episode results."
+        )
+
+    comparison_table = pd.DataFrame({
+        label: frame[common_metrics].mean(numeric_only=True)
+        for label, frame in agent_frames.items()
+    }).T
+    comparison_table.index.name = "agent"
+
+    all_episodes = pd.concat(
+        [result["episodes"].copy() for result in benchmark_results.values()],
+        ignore_index=True,
+        sort=False,
+    )
+    stamp = timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+    comparison_csv = (
+        Path(log_root) / "comparison" / f"{benchmark}_{stamp}"
+        / "episode_metrics_all_agents.csv"
+    )
+    comparison_csv.parent.mkdir(parents=True, exist_ok=True)
+    all_episodes.to_csv(comparison_csv, index=False)
+
+    display(comparison_table)
+    return {
+        "comparison_table": comparison_table,
+        "common_metrics": common_metrics,
+        "all_episodes": all_episodes,
+        "comparison_csv": comparison_csv,
+        "missing_metrics": missing,
+    }
+
+
+def make_pretrained_evaluation_wrapper_factories(
+    *,
+    environment,
+    gae_run_dir,
+    project_root,
+    log_root,
+):
+    """Create the GNN-discrete, iterative, and projection wrappers for test runs."""
+    try:
+        from LaGCORL.agents.notebook_train_gae_api import make_agent_training_wrapper_factory
+    except ImportError:
+        from agents.notebook_train_gae_api import make_agent_training_wrapper_factory
+
+    wrapper_root = Path(log_root) / "pretrained_evaluation" / "wrapper_logs" / str(environment)
+    common = {
+        "environment": environment,
+        "gae_run_dir": str(gae_run_dir),
+        "project_root": str(project_root),
+    }
+    return {
+        "gnn_discrete": make_agent_training_wrapper_factory(
+            **common,
+            agent_type="discrete",
+            algorithm="ppo",
+            logs_dir=str(wrapper_root / "discrete_gnn"),
+        ),
+        "iterative": make_agent_training_wrapper_factory(
+            **common,
+            agent_type="iterative",
+            logs_dir=str(wrapper_root / "iterative"),
+        ),
+        "projection": make_agent_training_wrapper_factory(
+            **common,
+            agent_type="projection",
+            algorithm="ppo",
+            logs_dir=str(wrapper_root / "projection"),
+        ),
+    }
+
+
+def load_pretrained_agents(
+    *,
+    artifacts,
+    wrapper_factories,
+    corpus_dir,
+    env_ids,
+    project_root,
+    log_root,
+    environment,
+):
+    """Load available pretrained policies and prepare the padded GNN evaluation env.
+
+    Returns ``models``, ``load_errors`` and ``gnn_test_setup``. Missing or
+    incompatible artifacts are recorded and skipped so other agents can proceed.
+    """
+    import json
+
+    try:
+        from stable_baselines3 import PPO
+        from stable_baselines3.common.vec_env import DummyVecEnv
+    except ImportError as exc:
+        raise ImportError("stable-baselines3 is required to load pretrained agents.") from exc
+
+    try:
+        from LaGCORL.agents.notebook_train_api import _get_model_class
+    except ImportError:
+        from agents.notebook_train_api import _get_model_class
+
+    models, load_errors = {}, {}
+    gnn_test_setup = None
+    env_ids = [int(value) for value in env_ids]
+    if not env_ids:
+        raise ValueError("env_ids must contain at least one evaluation environment.")
+
+    gnn_artifact = artifacts.get("gnn_discrete")
+    if gnn_artifact is not None and "gnn_discrete" in wrapper_factories:
+        padding_path = Path(gnn_artifact).parent / "padding_config.json"
+        if padding_path.is_file():
+            padding_config = json.loads(padding_path.read_text(encoding="utf-8"))
+            eval_paths = create_run_layout(
+                log_root, "pretrained_gnn_discrete_evaluation", environment=environment
+            )
+            gnn_test_setup = build_padded_gnn_discrete_corpus(
+                project_root=project_root,
+                corpus_dir=corpus_dir,
+                env_ids=env_ids,
+                train_env_id=env_ids[0],
+                wrapper_factory=wrapper_factories["gnn_discrete"],
+                log_root=log_root,
+                run_dir=eval_paths["run"],
+                environment=environment,
+                padding_config=padding_config,
+            )
+            try:
+                models["gnn_discrete"] = PPO.load(
+                    str(gnn_artifact), env=gnn_test_setup["env"], device="cpu"
+                )
+                print("Loaded GNN+discrete PPO.")
+            except Exception as exc:
+                load_errors["gnn_discrete"] = f"{type(exc).__name__}: {exc}"
+                print("Skipping GNN+discrete PPO:", load_errors["gnn_discrete"])
+        else:
+            print("Skipping GNN+discrete PPO: matching padding_config.json was not found.")
+
+    for key, algorithm, model_class in (
+        ("iterative", "idqn", None),
+        ("projection", "ppo", PPO),
+    ):
+        if artifacts.get(key) is None or key not in wrapper_factories:
+            continue
+        try:
+            env = DummyVecEnv([
+                lambda key=key: wrapper_factories[key](
+                    load_benchmark_env(corpus_dir, env_ids[0], environment)
+                )
+            ])
+            cls = model_class or _get_model_class(algorithm)
+            models[key] = cls.load(str(artifacts[key]), env=env, device="cpu")
+            print(f"Loaded {key} policy.")
+        except Exception as exc:
+            load_errors[key] = f"{type(exc).__name__}: {exc}"
+            print(f"Skipping {key}:", load_errors[key])
+
+    print("Loaded agents:", list(models))
+    return {"models": models, "load_errors": load_errors, "gnn_test_setup": gnn_test_setup}
+
+
+def evaluate_pretrained_agents(
+    *,
+    models,
+    gnn_test_setup,
+    wrapper_factories,
+    corpus_dir,
+    env_ids,
+    evaluation_root,
+    n_episodes,
+    seeds,
+    verbose=0,
+):
+    """Evaluate loaded agents on the same corpus and episode seeds."""
+    try:
+        from LaGCORL.agents.notebook_test_api import test_agent_on_env
+    except ImportError:
+        from agents.notebook_test_api import test_agent_on_env
+
+    evaluation_root = Path(evaluation_root)
+    evaluation_root.mkdir(parents=True, exist_ok=True)
+    env_ids = [int(value) for value in env_ids]
+    results = {}
+
+    if "gnn_discrete" in models and gnn_test_setup is not None:
+        frames = [
+            evaluate_padded_gnn_policy(
+                models["gnn_discrete"],
+                env_id=env_id,
+                train_env_id=env_ids[0],
+                wrapped_corpus_dir=gnn_test_setup["wrapped_corpus_dir"],
+                padding_config=gnn_test_setup["padding_config"],
+                log_dir=evaluation_root,
+                n_episodes=n_episodes,
+                seed=seeds[0],
+                label="GNN + padded discrete PPO",
+            )
+            for env_id in env_ids
+        ]
+        results["gnn_discrete"] = {"episodes": pd.concat(frames, ignore_index=True)}
+
+    labels = {"iterative": "iterative iDQN", "projection": "projection PPO"}
+    for key, label in labels.items():
+        if key in models:
+            results[key] = benchmark_on_corpus(
+                models[key],
+                corpus_dir=corpus_dir,
+                env_ids=env_ids,
+                test_agent_on_env=test_agent_on_env,
+                n_episodes=n_episodes,
+                seeds=seeds,
+                wrapper_factory=wrapper_factories[key],
+                test_metrics_dir=evaluation_root / key,
+                label=label,
+                verbose=verbose,
+            )
+
+    if not results:
+        raise RuntimeError(
+            "No policy could be evaluated. Review artifact paths and load errors; "
+            "the benchmark environment must match the checkpoint's observation/action schema."
+        )
+    return results
+
+
+def cleanup_temporary_wrapped_corpus(gnn_test_setup):
+    """Remove the temporary serialized wrapped corpus created for padded GNN testing."""
+    import shutil
+
+    if not gnn_test_setup:
+        return None
+    wrapped_dir = gnn_test_setup.get("wrapped_corpus_dir")
+    if wrapped_dir is None:
+        return None
+    wrapped_dir = Path(wrapped_dir)
+    if wrapped_dir.is_dir():
+        shutil.rmtree(wrapped_dir)
+    return wrapped_dir
+
+
+def summarize_results(
+    evaluation_results,
+    benchmark,
+    evaluation_root,
+):
+    """Combine episode results, compare shared benchmark metrics, and export summaries."""
+    benchmark = _normalize_benchmark(benchmark)
+    evaluation_root = Path(evaluation_root)
+    evaluation_root.mkdir(parents=True, exist_ok=True)
+
+    episode_frames = []
+    agent_frames = {}
+    for name, result in evaluation_results.items():
+        frame = result["episodes"].copy()
+        if "agent" not in frame.columns:
+            frame.insert(0, "agent", name)
+        episode_frames.append(frame)
+        agent_frames[name] = frame.copy()
+
+    all_episodes = pd.concat(episode_frames, ignore_index=True, sort=False)
+    combined_csv = evaluation_root / "episode_metrics_all_agents.csv"
+    all_episodes.to_csv(combined_csv, index=False)
+
+    if benchmark == "maxcut":
+        expected_metrics = [
+            "agent_current_cut", "agent_relative_performance",
+            "agent_partition0_size", "agent_partition1_size", "agent_num_steps",
+        ]
+        aliases = {
+            "current_cut": "agent_current_cut",
+            "relative_performance": "agent_relative_performance",
+            "partition0_size": "agent_partition0_size",
+            "partition1_size": "agent_partition1_size",
+            "num_steps": "agent_num_steps",
+        }
+    elif benchmark == "vmp":
+        expected_metrics = [
+            "agent_weighted_sum_difference", "agent_norm_avg_util_difference",
+            "agent_norm_avg_power_difference", "agent_norm_avg_security_risk_difference",
+            "agent_norm_avg_load_difference", "agent_norm_packing_efficiency_difference",
+            "agent_vm_density_difference", "agent_active_pms_difference",
+            "agent_actual_valid_movements",
+        ]
+        aliases = {
+            "weighted_sum_difference": "agent_weighted_sum_difference",
+            "norm_avg_util_difference": "agent_norm_avg_util_difference",
+            "norm_avg_power_difference": "agent_norm_avg_power_difference",
+            "norm_avg_security_risk_difference": "agent_norm_avg_security_risk_difference",
+            "norm_avg_load_difference": "agent_norm_avg_load_difference",
+            "norm_packing_efficiency_difference": "agent_norm_packing_efficiency_difference",
+            "vm_density_difference": "agent_vm_density_difference",
+            "active_pms_difference": "agent_active_pms_difference",
+            "actual_valid_movements": "agent_actual_valid_movements",
+        }
+    else:
+        raise ValueError(f"Unknown benchmark: {benchmark}")
+
+    for label, frame in list(agent_frames.items()):
+        rename = {
+            alias: canonical for alias, canonical in aliases.items()
+            if alias in frame.columns and canonical not in frame.columns
+        }
+        agent_frames[label] = frame.rename(columns=rename)
+
+    missing = {
+        label: [metric for metric in expected_metrics if metric not in frame.columns]
+        for label, frame in agent_frames.items()
+    }
+
+    common_metrics = [
+        metric for metric in expected_metrics
+        if all(metric in frame.columns for frame in agent_frames.values())
+    ]
+    if common_metrics:
+        comparison_table = pd.DataFrame({
+            label: frame[common_metrics].mean(numeric_only=True)
+            for label, frame in agent_frames.items()
+        }).T
+        comparison_table.index.name = "agent"
+        display(comparison_table)
+        comparison_csv = evaluation_root / "shared_metric_comparison.csv"
+        comparison_table.to_csv(comparison_csv)
+        print("Saved shared-metric comparison:", comparison_csv)
+    else:
+        comparison_table = pd.DataFrame()
+        comparison_csv = None
+        print(
+            "No shared benchmark comparison metrics are available across all evaluated agents. "
+            "The episode-level CSV is still saved; check the metric names returned by each evaluator."
+        )
+
+    identifier_columns = {
+        "agent", "corpus_env_id", "episode", "seed", "env_id", "scenario_id"
+    }
+    summary_rows = []
+    for name, result in evaluation_results.items():
+        frame = result["episodes"].copy()
+        numeric = [
+            col for col in frame.select_dtypes(include=["number"]).columns
+            if col not in identifier_columns
+        ]
+        row = {"agent": name}
+        if numeric:
+            row.update(frame[numeric].mean(numeric_only=True).to_dict())
+        summary_rows.append(row)
+    summary_table = pd.DataFrame(summary_rows).set_index("agent")
+    summary_csv = evaluation_root / "aggregate_summary.csv"
+    summary_table.to_csv(summary_csv)
+
+    print("Saved episode metrics:", combined_csv)
+    print("Saved aggregate numeric summary:", summary_csv)
+    return {
+        "all_episodes": all_episodes,
+        "comparison_table": comparison_table,
+        "summary_table": summary_table,
+        "common_metrics": common_metrics,
+        "missing_metrics": missing,
+        "combined_csv": combined_csv,
+        "comparison_csv": comparison_csv,
+        "summary_csv": summary_csv,
+    }

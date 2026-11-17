@@ -58,25 +58,6 @@ def test_agent_on_env(
     The benchmark metrics are taken from env.get_metrics() through the
     project's calculate_average_performances utility. This API expects a
     project environment whose completed episode exposes get_metrics().
-
-    Parameters
-    ----------
-    model: trained SB3/LaGCORL-compatible model.
-    env: fresh Gym/Gymnasium project environment (not the training instance).
-    n_episodes: total episodes to evaluate.
-    seeds: optional seed list; repeats cyclically if shorter than n_episodes.
-    wrapper_factory: same environment wrapper used during training, if required.
-    compare_random: include the project's random-agent baseline.
-    deterministic: retained for API clarity. The current project benchmark
-        helper selects actions with deterministic=False, matching test_utils.
-        To change this, update play_agent_episode_until_done in test_utils.
-    save_dir: optional directory for benchmark CSV/JSON outputs.
-    logger: optional logger; a default notebook logger is created if omitted.
-    verbose: verbosity forwarded to project test utilities.
-    label: descriptive name added to exported result metadata.
-
-    Returns a dict containing the per-episode benchmark DataFrame, metric lists,
-    certainty statistics, and aggregate summaries.
     """
     if n_episodes <= 0:
         raise ValueError("n_episodes must be positive")
