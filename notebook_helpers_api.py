@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from tqdm.auto import tqdm
 from datetime import datetime
 from pathlib import Path
 from IPython.display import display
@@ -492,7 +493,8 @@ def sample_maxcut_corpus(
     test_ids = sorted(ids[n_train + n_val:])
 
     metadata = []
-    for env_id in range(count):
+
+    for env_id in tqdm(range(count), desc="Generating MaxCut corpus", unit="graph"):
         graph = sample_graph()
         env = ExtendedMaxCutEnv(graph=graph, max_sweeps=max_sweeps)
         env_dir = corpus_dir / str(env_id)
@@ -1547,33 +1549,51 @@ def benchmark_environment_name(benchmark):
     """Return the canonical environment key used by LaGCORL config files."""
     return _normalize_benchmark(benchmark)
 
-
-def newest_benchmark_artifact(log_root, agent_type, benchmark, *, artifact="model.zip"):
+def newest_benchmark_artifact(
+    log_root, agent_type, benchmark, *, artifact="model.zip", pretrained=False
+):
     """Find the newest policy artifact in flat or legacy pretrained run layouts.
 
-    Searches both <run>/<artifact> and any nested locations such as
-    <run>/checkpoints/<artifact>, while preferring the shallowest copy in a run.
+    When retrained=True, prefers run folders containing "pretrained".
+    If none exist, falls back to the newest available run.
     """
     benchmark = _normalize_benchmark(benchmark)
     root = Path(log_root).expanduser().resolve()
     agent_root = root / str(agent_type)
+
     if not agent_root.is_dir():
         return None
 
     run_candidates = []
+
     for run_dir in agent_root.glob(f"{benchmark}_*"):
         if not run_dir.is_dir():
             continue
+
         matches = [path for path in run_dir.rglob(artifact) if path.is_file()]
         if matches:
             selected = min(
                 matches,
                 key=lambda path: len(path.relative_to(run_dir).parts),
             )
-            run_candidates.append((run_dir.stat().st_mtime, selected.stat().st_mtime, selected))
+            run_candidates.append(
+                (run_dir.name, run_dir.stat().st_mtime, selected.stat().st_mtime, selected)
+            )
 
-    return max(run_candidates, key=lambda item: (item[0], item[1]))[2] if run_candidates else None
+    if not run_candidates:
+        return None
 
+    if pretrained:
+        pretrained_candidates = [
+            candidate
+            for candidate in run_candidates
+            if "pretrained" in candidate[0].lower()
+        ]
+
+        if pretrained_candidates:
+            run_candidates = pretrained_candidates
+
+    return max(run_candidates, key=lambda item: (item[1], item[2]))[3]
 
 def newest_gae_bundle(log_root, benchmark):
     """Find the newest GAE encoder root in flat or legacy pretrained layouts.
