@@ -22,7 +22,7 @@
 
 <img src="https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5b/Logo_Universit%C3%A9_de_Lorraine.svg/3840px-Logo_Universit%C3%A9_de_Lorraine.svg.png?utm_source=fr.wikipedia.org&utm_campaign=index&utm_content=thumbnail" height="50" alt="Université de Lorraine"/>
 &nbsp;
-<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Inr_logo_rouge.svg/1280px-Inr_logo_rouge.svg.png" height="50" alt="INRIA"/>
+<img src="https://climate.copernicus.eu/sites/default/files/styles/small/public/2019-10/_INRIA.png?itok=VmuzzdNB" height="40" alt="INRIA"/>
 &nbsp;
 <img src="https://upload.wikimedia.org/wikipedia/fr/6/6e/Logo_loria_abrege_couleur.png" height="50" alt="LORIA"/>
 &nbsp;
